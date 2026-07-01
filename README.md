@@ -1,8 +1,9 @@
 # ocpvirt-workloads-ha
 
 Kustomize manifests for deploying OpenShift workload-availability operators on
-bare-metal clusters (including virtualization-heavy environments). Converted from
-the Helm charts in the parent repository for GitOps deployment via Argo CD.
+bare-metal clusters with HPE iLO fencing. Remediation uses Fence Agents
+Remediation (FAR) only — Self Node Remediation and Machine Deletion Remediation
+are excluded (no Machine API).
 
 All operator Subscriptions use `installPlanApproval: Manual`. Argo CD syncs the
 Subscription objects immediately; you approve each InstallPlan manually in the
@@ -29,11 +30,9 @@ ocpvirt-workloads-ha/
 └── operators/                  # One YAML file per operator (+ instances)
     ├── kustomization.yaml
     ├── 01-node-maintenance-operator.yaml
-    ├── 02-self-node-remediation-operator.yaml
-    ├── 03-fence-agents-remediation-operator.yaml
-    ├── 04-machine-deletion-remediation-operator.yaml
-    ├── 05-node-health-check-operator.yaml
-    └── 06-kube-descheduler-operator.yaml
+    ├── 02-fence-agents-remediation-operator.yaml
+    ├── 03-node-health-check-operator.yaml
+    └── 04-kube-descheduler-operator.yaml
 ```
 
 ## InstallPlan manual approval order
@@ -44,11 +43,9 @@ Approve InstallPlans in this order. Wait for each operator CSV to reach
 | Order | Operator | Subscription name | Namespace | Argo CD sync-wave |
 |------:|----------|-------------------|-----------|-------------------|
 | 1 | Node Maintenance | `node-maintenance-operator` | `openshift-workload-availability` | 10 |
-| 2 | Self Node Remediation | `self-node-remediation` | `openshift-workload-availability` | 20 |
-| 3 | Fence Agents Remediation | `fence-agents-remediation` | `openshift-workload-availability` | 21 |
-| 4 | Machine Deletion Remediation | `machine-deletion-remediation` | `openshift-workload-availability` | 22 |
-| 5 | Node Health Check | `node-healthcheck-operator` | `openshift-workload-availability` | 30 |
-| 6 | Kube Descheduler | `cluster-kube-descheduler-operator` | `openshift-kube-descheduler-operator` | 40 |
+| 2 | Fence Agents Remediation | `fence-agents-remediation` | `openshift-workload-availability` | 20 |
+| 3 | Node Health Check | `node-healthcheck-operator` | `openshift-workload-availability` | 30 |
+| 4 | Kube Descheduler | `cluster-kube-descheduler-operator` | `openshift-kube-descheduler-operator` | 40 |
 
 Each Subscription carries the annotation `ocpvirt-workloads-ha/install-plan-order`
 matching the table above.
@@ -67,24 +64,26 @@ oc patch installplan <installplan-name> -n openshift-workload-availability \
 oc get csv -n openshift-workload-availability
 ```
 
-Repeat for `openshift-kube-descheduler-operator` after step 5.
+Repeat for `openshift-kube-descheduler-operator` after step 3.
 
-### Remediation backend note
+### Remediation backend
 
-Steps 2–4 install three remediation backends. This bundle is configured for
-**Fence Agents Remediation with HPE iLO** as the active NHC backend. For
-production you typically choose **one** remediation path:
+This bundle uses **Fence Agents Remediation with HPE iLO** as the sole
+remediation backend for Node Health Check. Self Node Remediation and Machine
+Deletion Remediation are not included.
 
-- **Fence Agents Remediation + HPE iLO** (configured) — out-of-band power
-  cycling via iLO; requires BMC credentials and tested fencing.
-- **Self Node Remediation** — in-cluster remediation without external BMC.
-  Change the `remediationTemplate` in `05-node-health-check-operator.yaml` to
-  reference `self-node-remediation-resource-deletion-template`.
-- **Machine Deletion Remediation** — only for Machine API-backed nodes.
+If those operators were previously installed on the cluster, remove them after
+syncing this repo (Argo CD prune may handle subscriptions; clean up CSVs if
+needed):
 
-If you only need SNR, remove files `03-*` and `04-*` from
-`operators/kustomization.yaml`, revert the NHC remediation template, and skip
-their InstallPlan approvals.
+```bash
+oc delete subscription self-node-remediation machine-deletion-remediation \
+  -n openshift-workload-availability --ignore-not-found
+
+oc delete csv -n openshift-workload-availability \
+  $(oc get csv -n openshift-workload-availability \
+    -o name | grep -E 'self-node-remediation|machine-deletion-remediation' || true)
+```
 
 ## Argo CD sync waves
 
@@ -92,10 +91,10 @@ their InstallPlan approvals.
 |-----:|-----------|
 | 0–1 | Both namespaces and OperatorGroups (workload-availability uses AllNamespaces mode) |
 | 10 | Node Maintenance Subscription |
-| 20–22 | Remediation operator Subscriptions |
+| 20 | Fence Agents Remediation Subscription |
 | 30 | Node Health Check Subscription |
 | 40 | Descheduler Subscription |
-| 50–55 | CR instances (templates, secrets, NodeHealthCheck, KubeDescheduler) |
+| 50–55 | CR instances (FAR template, secret, NodeHealthCheck, KubeDescheduler) |
 
 Instance CRs use `SkipDryRunOnMissingResource=true` so Argo CD does not fail
 dry-run before operator CRDs exist.
@@ -104,9 +103,8 @@ dry-run before operator CRDs exist.
 
 The `openshift-workload-availability` OperatorGroup intentionally has **no**
 `spec.targetNamespaces`. This configures AllNamespaces install mode, which is
-required by Fence Agents Remediation, Machine Deletion Remediation, Self Node
-Remediation, and Node Health Check (their CSVs set `OwnNamespace: supported:
-false`).
+required by Fence Agents Remediation and Node Health Check (their CSVs set
+`OwnNamespace: supported: false`).
 
 The descheduler OperatorGroup in `openshift-kube-descheduler-operator` keeps
 `targetNamespaces` because that operator supports OwnNamespace.
@@ -176,13 +174,12 @@ oc patch application ocpvirt-workloads-ha -n openshift-gitops --type merge \
 Before pointing Argo CD at this repo, update:
 
 1. **HPE iLO credentials and node map** —
-   `operators/03-fence-agents-remediation-operator.yaml`
+   `operators/02-fence-agents-remediation-operator.yaml`
    - Replace `CHANGE_ME_ILO_USER` / `CHANGE_ME_ILO_PASSWORD` in the Secret
    - Update `nodeparameters` with your OpenShift node names and iLO management IPs
    - Ensure each iLO user has at least **Virtual Power and Reset** privilege
-2. **Node Health Check remediation template** — currently points to
-   `far-template-hpe-ilo4`. Switch to SNR or MDR by editing
-   `operators/05-node-health-check-operator.yaml` if needed.
+2. **Node Health Check remediation template** — points to `far-template-hpe-ilo4`
+   in `operators/03-node-health-check-operator.yaml`
 
 ### HPE iLO setup
 
@@ -255,8 +252,6 @@ oc kustomize .
 | File | Operator package | Instances included |
 |------|------------------|-------------------|
 | `01-node-maintenance-operator.yaml` | `node-maintenance-operator` | None |
-| `02-self-node-remediation-operator.yaml` | `self-node-remediation` | `SelfNodeRemediationTemplate` |
-| `03-fence-agents-remediation-operator.yaml` | `fence-agents-remediation` | HPE iLO Secret + `FenceAgentsRemediationTemplate` (`far-template-hpe-ilo4`) |
-| `04-machine-deletion-remediation-operator.yaml` | `machine-deletion-remediation` | `MachineDeletionRemediationTemplate` |
-| `05-node-health-check-operator.yaml` | `node-healthcheck-operator` | `NodeHealthCheck` |
-| `06-kube-descheduler-operator.yaml` | `cluster-kube-descheduler-operator` | `KubeDescheduler` |
+| `02-fence-agents-remediation-operator.yaml` | `fence-agents-remediation` | HPE iLO Secret + `FenceAgentsRemediationTemplate` (`far-template-hpe-ilo4`) |
+| `03-node-health-check-operator.yaml` | `node-healthcheck-operator` | `NodeHealthCheck` |
+| `04-kube-descheduler-operator.yaml` | `cluster-kube-descheduler-operator` | `KubeDescheduler` |

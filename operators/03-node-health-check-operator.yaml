@@ -1,5 +1,5 @@
 # Node Health Check Operator
-# InstallPlan approval order: 5 of 6
+# InstallPlan approval order: 3 of 4
 # Approve after fence-agents-remediation operator is installed and the HPE iLO
 # FenceAgentsRemediationTemplate exists (far-template-hpe-ilo4).
 ---
@@ -13,7 +13,7 @@ metadata:
     app.kubernetes.io/component: operator
   annotations:
     argocd.argoproj.io/sync-wave: "30"
-    ocpvirt-workloads-ha/install-plan-order: "5"
+    ocpvirt-workloads-ha/install-plan-order: "3"
 spec:
   channel: stable
   installPlanApproval: Manual

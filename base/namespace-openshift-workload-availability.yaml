@@ -1,6 +1,6 @@
 # Shared namespace and OperatorGroup for workload-availability operators.
-# OperatorGroup uses AllNamespaces mode (no targetNamespaces) because FAR, MDR,
-# SNR, and NHC only support AllNamespaces install mode per their CSV.
+# OperatorGroup uses AllNamespaces mode (no targetNamespaces) because FAR and NHC
+# only support AllNamespaces install mode per their CSV.
 # Descheduler uses a separate namespace (base/namespace-openshift-kube-descheduler-operator.yaml).
 apiVersion: v1
 kind: Namespace

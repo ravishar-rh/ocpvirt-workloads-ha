@@ -1,5 +1,5 @@
 # Fence Agents Remediation Operator with HPE iLO configuration
-# InstallPlan approval order: 3 of 6
+# InstallPlan approval order: 2 of 4
 #
 # HPE iLO prerequisites:
 #   - Dedicated iLO user with at least "Virtual Power and Reset" privilege
@@ -19,8 +19,8 @@ metadata:
     app.kubernetes.io/name: fence-agents-remediation
     app.kubernetes.io/component: operator
   annotations:
-    argocd.argoproj.io/sync-wave: "21"
-    ocpvirt-workloads-ha/install-plan-order: "3"
+    argocd.argoproj.io/sync-wave: "20"
+    ocpvirt-workloads-ha/install-plan-order: "2"
 spec:
   channel: stable
   installPlanApproval: Manual

@@ -1,5 +1,5 @@
 # Cluster Kube Descheduler Operator
-# InstallPlan approval order: 6 of 6
+# InstallPlan approval order: 4 of 4
 # Namespace and OperatorGroup live in base/namespace-openshift-kube-descheduler-operator.yaml.
 # Approve after node-health-check operator is installed.
 ---
@@ -13,7 +13,7 @@ metadata:
     app.kubernetes.io/component: operator
   annotations:
     argocd.argoproj.io/sync-wave: "40"
-    ocpvirt-workloads-ha/install-plan-order: "6"
+    ocpvirt-workloads-ha/install-plan-order: "4"
 spec:
   channel: stable
   installPlanApproval: Manual
