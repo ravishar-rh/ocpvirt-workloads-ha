@@ -29,6 +29,7 @@ apiVersion: operator.openshift.io/v1
 kind: KubeDescheduler
 metadata:
   name: cluster
+  namespace: openshift-kube-descheduler-operator
   labels:
     app.kubernetes.io/name: cluster-kube-descheduler-operator
     app.kubernetes.io/component: instance
