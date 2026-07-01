@@ -2,13 +2,75 @@
 #   oc apply -f bootstrap/gitops-rbac.yaml
 #
 # Grants the OpenShift GitOps application-controller permission to manage
-# resources (including Secrets) in openshift-* operator namespaces.
+# Secrets in openshift-* operator namespaces (RoleBinding) and instance CRs
+# such as NodeHealthCheck (ClusterRole — evaluated at cluster scope by OLM).
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: openshift-gitops-ocpvirt-workloads-ha-instances
+  labels:
+    app.kubernetes.io/part-of: ocpvirt-workloads-ha
+rules:
+  - apiGroups:
+      - remediation.medik8s.io
+    resources:
+      - nodehealthchecks
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - fence-agents-remediation.medik8s.io
+    resources:
+      - fenceagentsremediationtemplates
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - operator.openshift.io
+    resources:
+      - kubedeschedulers
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: openshift-gitops-ocpvirt-workloads-ha-instances
+  labels:
+    app.kubernetes.io/part-of: ocpvirt-workloads-ha
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: openshift-gitops-ocpvirt-workloads-ha-instances
+subjects:
+  - kind: ServiceAccount
+    name: openshift-gitops-argocd-application-controller
+    namespace: openshift-gitops
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: openshift-gitops-admin
   namespace: openshift-workload-availability
+  labels:
+    app.kubernetes.io/part-of: ocpvirt-workloads-ha
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -23,6 +85,8 @@ kind: RoleBinding
 metadata:
   name: openshift-gitops-admin
   namespace: openshift-kube-descheduler-operator
+  labels:
+    app.kubernetes.io/part-of: ocpvirt-workloads-ha
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole

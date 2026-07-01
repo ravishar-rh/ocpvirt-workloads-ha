@@ -173,10 +173,20 @@ Run in this order:
 ### 1. Grant GitOps RBAC (cluster-admin, once)
 
 OpenShift GitOps cannot create Secrets in `openshift-*` namespaces without
-explicit permission:
+explicit permission. Instance CRs (`NodeHealthCheck`, etc.) also require a
+ClusterRole because OLM evaluates those permissions at cluster scope:
 
 ```bash
 oc apply -f bootstrap/gitops-rbac.yaml
+```
+
+Verify the ClusterRoleBinding exists:
+
+```bash
+oc get clusterrolebinding openshift-gitops-ocpvirt-workloads-ha-instances
+oc auth can-i patch nodehealthchecks.remediation.medik8s.io \
+  --as=system:serviceaccount:openshift-gitops:openshift-gitops-argocd-application-controller \
+  -n openshift-workload-availability
 ```
 
 ### 2. Register Applications
@@ -218,6 +228,7 @@ oc patch application ocpvirt-workloads-ha-instances -n openshift-gitops --type m
 | Error | Cause | Fix |
 |-------|-------|-----|
 | `cannot patch resource "secrets"` | GitOps SA lacks RBAC in operator namespaces | `oc apply -f bootstrap/gitops-rbac.yaml` |
+| `cannot patch resource "nodehealthchecks"` | Missing ClusterRole for instance CRDs | Re-apply `bootstrap/gitops-rbac.yaml` (includes ClusterRole) |
 | `FenceAgentsRemediationTemplate` not found | FAR operator not installed yet | Approve FAR InstallPlan; sync instances **after** CSV Succeeded |
 | `KubeDescheduler` not found | Descheduler operator not installed yet | Approve descheduler InstallPlan; then sync instances |
 | `is part of applications X and Y` | Two Applications manage the same resource | Delete the extra Application (see below) |
