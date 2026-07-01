@@ -229,7 +229,7 @@ oc patch application ocpvirt-workloads-ha-instances -n openshift-gitops --type m
 |-------|-------|-----|
 | `cannot patch resource "secrets"` | GitOps SA lacks RBAC in operator namespaces | `oc apply -f bootstrap/gitops-rbac.yaml` |
 | `cannot patch resource "nodehealthchecks"` | Missing ClusterRole for instance CRDs | Re-apply `bootstrap/gitops-rbac.yaml` (includes ClusterRole) |
-| `FenceAgentsRemediationTemplate` not found | FAR operator not installed yet | Approve FAR InstallPlan; sync instances **after** CSV Succeeded |
+| `FenceAgentsRemediationTemplate` not syncing | Wrong `nodeparameters` shape or unknown node names | Use parameter-first maps; set real node names from `oc get nodes` |
 | `KubeDescheduler` not found | Descheduler operator not installed yet | Approve descheduler InstallPlan; then sync instances |
 | `is part of applications X and Y` | Two Applications manage the same resource | Delete the extra Application (see below) |
 
@@ -291,8 +291,35 @@ Before syncing instances, update in Git:
 | Template name | `far-template-hpe-ilo4` |
 | Secret | `fence-agents-credentials-hpe-ilo` |
 | Remediation strategy | `ResourceDeletion` |
-| Per-node params | `ipaddr` = iLO IP, `plug` = `"1"` |
-| Shared params | `lanplus: "1"`, `method: reboot` |
+| Per-node params | `nodeparameters.ipaddr` / `nodeparameters.plug` maps keyed by node name |
+| Shared params | `--lanplus: "1"`, `--action: reboot` |
+| Secret keys | `--username`, `--password` (fence agent parameter names) |
+
+**Important:** `nodeparameters` uses parameter-first maps, not node-first nesting:
+
+```yaml
+nodeparameters:
+  ipaddr:
+    <node-name-from-oc-get-nodes>: "<ilo-ip>"
+  plug:
+    <node-name-from-oc-get-nodes>: "1"
+```
+
+Replace placeholder node names before sync. List your nodes:
+
+```bash
+oc get nodes -o custom-columns=NAME:.metadata.name
+```
+
+If sync still fails, inspect FAR template validation status:
+
+```bash
+oc get fenceagentsremediationtemplate far-template-hpe-ilo4 \
+  -n openshift-workload-availability -o yaml
+
+oc describe fenceagentsremediationtemplate far-template-hpe-ilo4 \
+  -n openshift-workload-availability
+```
 
 Test fencing before enabling NHC in production:
 
