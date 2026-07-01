@@ -13,12 +13,8 @@ spec:
   profiles:
     - LifecycleAndUtilization
   profileCustomizations:
-    devLowNodeUtilizationThresholds:
-      thresholds:
-        cpu: 30
-        memory: 30
-        pods: 30
-      targetThresholds:
-        cpu: 75
-        memory: 75
-        pods: 75
+    # Preset thresholds for LowNodeUtilization (string, not an object):
+    #   Low    — 10% underutilized / 30% overutilized
+    #   Medium — 20% underutilized / 50% overutilized (default)
+    #   High   — 40% underutilized / 70% overutilized
+    devLowNodeUtilizationThresholds: Medium

@@ -355,4 +355,4 @@ oc kustomize instances/     # CR instances
 | `instances/fence-agents-secret.yaml` | iLO credentials Secret |
 | `instances/fence-agents-remediation-template.yaml` | `FenceAgentsRemediationTemplate` |
 | `instances/node-health-check.yaml` | `NodeHealthCheck` |
-| `instances/kube-descheduler.yaml` | `KubeDescheduler` |
+| `instances/kube-descheduler.yaml` | `KubeDescheduler` (`devLowNodeUtilizationThresholds: Medium`) |
