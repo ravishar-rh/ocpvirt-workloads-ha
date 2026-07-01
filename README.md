@@ -220,6 +220,48 @@ oc patch application ocpvirt-workloads-ha-instances -n openshift-gitops --type m
 | `cannot patch resource "secrets"` | GitOps SA lacks RBAC in operator namespaces | `oc apply -f bootstrap/gitops-rbac.yaml` |
 | `FenceAgentsRemediationTemplate` not found | FAR operator not installed yet | Approve FAR InstallPlan; sync instances **after** CSV Succeeded |
 | `KubeDescheduler` not found | Descheduler operator not installed yet | Approve descheduler InstallPlan; then sync instances |
+| `is part of applications X and Y` | Two Applications manage the same resource | Delete the extra Application (see below) |
+
+### Duplicate Application ownership
+
+This repo defines exactly **two** Applications:
+
+| Application | Path | Purpose |
+|-------------|------|---------|
+| `ocpvirt-workloads-ha` | `.` | Namespaces, OperatorGroups, Subscriptions |
+| `ocpvirt-workloads-ha-instances` | `instances` | Secret, FAR template, NHC, KubeDescheduler |
+
+If you also created `ocpvirt-workloads-ha-config` (or any other Application
+pointing at `instances/` or overlapping paths), Argo CD warns that resources
+like `NodeHealthCheck/nhc-all-linux-nodes` are owned by two apps.
+
+**Inspect:**
+
+```bash
+oc get application -n openshift-gitops \
+  -l app.kubernetes.io/part-of=ocpvirt-workloads-ha \
+  -o custom-columns=NAME:.metadata.name,PATH:.spec.source.path,SYNC:.status.sync.status
+
+oc get application ocpvirt-workloads-ha-config -n openshift-gitops \
+  -o jsonpath='{.spec.source.path}{"\n"}' 2>/dev/null || true
+```
+
+**Fix — keep only the repo Applications, remove the duplicate:**
+
+```bash
+# Remove the extra Application (does NOT delete cluster resources)
+oc delete application ocpvirt-workloads-ha-config -n openshift-gitops
+
+# Re-sync the canonical instances Application
+oc patch application ocpvirt-workloads-ha-instances -n openshift-gitops --type merge \
+  -p '{"metadata":{"annotations":{"argocd.argoproj.io/refresh":"hard"}}}'
+
+oc patch application ocpvirt-workloads-ha-instances -n openshift-gitops --type merge \
+  -p '{"operation":{"sync":{}}}'
+```
+
+Do **not** create a third Application for the same `instances/` path. Use
+`ocpvirt-workloads-ha-instances` only.
 
 ## Site-specific customization
 
