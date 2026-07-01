@@ -21,4 +21,6 @@ metadata:
     app.kubernetes.io/part-of: ocpvirt-workloads-ha
   annotations:
     argocd.argoproj.io/sync-wave: "1"
-# AllNamespaces install mode — required by Medik8s workload-availability operators.
+    # Replace ensures Argo CD drops stale spec.targetNamespaces from prior syncs.
+    argocd.argoproj.io/sync-options: Replace=true
+spec: {}

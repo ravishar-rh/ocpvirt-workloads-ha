@@ -111,24 +111,64 @@ false`).
 The descheduler OperatorGroup in `openshift-kube-descheduler-operator` keeps
 `targetNamespaces` because that operator supports OwnNamespace.
 
-If operators show `OwnNamespace InstallModeType not supported`, patch the
-OperatorGroup and let subscriptions reconcile:
+If operators show `OwnNamespace InstallModeType not supported`, the live
+OperatorGroup likely still has `spec.targetNamespaces` from the first sync.
+Argo CD merge sync does not remove that field unless the resource is replaced.
+
+**Verify:**
 
 ```bash
-oc patch operatorgroup openshift-workload-availability \
-  -n openshift-workload-availability --type json \
-  -p='[{"op":"remove","path":"/spec/targetNamespaces"}]'
-
-# Verify failed CSVs recover (may take a minute)
-oc get csv -n openshift-workload-availability
-oc get subscription -n openshift-workload-availability
+oc get operatorgroup openshift-workload-availability \
+  -n openshift-workload-availability -o yaml
+# AllNamespaces is correct when status.namespaces is [""] and spec has no targetNamespaces
+oc get operatorgroup openshift-workload-availability \
+  -n openshift-workload-availability -o jsonpath='{.status.namespaces}{"\n"}'
 ```
 
-If CSVs remain stuck, delete the failed CSV and re-approve the InstallPlan:
+**Fix on cluster (run before or after Git sync):**
 
 ```bash
-oc delete csv <failed-csv-name> -n openshift-workload-availability
+# 1. Replace OperatorGroup with AllNamespaces mode (empty spec)
+oc delete operatorgroup openshift-workload-availability \
+  -n openshift-workload-availability --wait=true
+
+oc apply -f - <<'EOF'
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: openshift-workload-availability
+  namespace: openshift-workload-availability
+spec: {}
+EOF
+
+# 2. Delete failed CSVs so OLM recreates them against the fixed OperatorGroup
+oc get csv -n openshift-workload-availability \
+  -o custom-columns=NAME:.metadata.name,PHASE:.status.phase | grep -v Succeeded
+
+oc delete csv -n openshift-workload-availability \
+  $(oc get csv -n openshift-workload-availability \
+    -o jsonpath='{range .items[?(@.status.phase!="Succeeded")]}{.metadata.name}{" "}{end}')
+
+# 3. Confirm subscriptions are still present and install plans reappear
+oc get subscription -n openshift-workload-availability
 oc get installplan -n openshift-workload-availability
+
+# 4. Approve install plans again (manual approval mode)
+oc patch installplan <installplan-name> -n openshift-workload-availability \
+  --type merge -p '{"spec":{"approved":true}}'
+
+# 5. Wait for CSVs to reach Succeeded
+oc get csv -n openshift-workload-availability -w
+```
+
+Then refresh GitOps from the repo:
+
+```bash
+oc patch application ocpvirt-workloads-ha -n openshift-gitops --type merge \
+  -p '{"metadata":{"annotations":{"argocd.argoproj.io/refresh":"hard"}}}'
+
+oc patch application ocpvirt-workloads-ha -n openshift-gitops --type merge \
+  -p '{"operation":{"sync":{}}}'
 ```
 
 ## Site-specific customization
