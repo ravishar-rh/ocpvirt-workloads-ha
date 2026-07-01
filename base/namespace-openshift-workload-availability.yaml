@@ -1,0 +1,24 @@
+# Shared namespace and OperatorGroup for workload-availability operators.
+# Descheduler uses a separate namespace (see 06-kube-descheduler-operator.yaml).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: openshift-workload-availability
+  labels:
+    openshift.io/cluster-monitoring: "true"
+    app.kubernetes.io/part-of: ocpvirt-workloads-ha
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+---
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: openshift-workload-availability
+  namespace: openshift-workload-availability
+  labels:
+    app.kubernetes.io/part-of: ocpvirt-workloads-ha
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  targetNamespaces:
+    - openshift-workload-availability

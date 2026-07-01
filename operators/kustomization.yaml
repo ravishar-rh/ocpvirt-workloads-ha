@@ -1,0 +1,10 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - 01-node-maintenance-operator.yaml
+  - 02-self-node-remediation-operator.yaml
+  - 03-fence-agents-remediation-operator.yaml
+  - 04-machine-deletion-remediation-operator.yaml
+  - 05-node-health-check-operator.yaml
+  - 06-kube-descheduler-operator.yaml

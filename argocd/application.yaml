@@ -1,0 +1,38 @@
+# Bootstrap manifest — apply once to register this repo with Argo CD.
+# Update spec.source.repoURL before applying.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ocpvirt-workloads-ha
+  namespace: openshift-gitops
+  labels:
+    app.kubernetes.io/name: ocpvirt-workloads-ha
+    app.kubernetes.io/part-of: ocpvirt-workloads-ha
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ravishar-rh/ocpvirt-workloads-ha.git
+    targetRevision: main
+    path: .
+  destination:
+    server: https://kubernetes.default.svc
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - RespectIgnoreDifferences=true
+      - ServerSideApply=true
+  ignoreDifferences:
+    - group: operators.coreos.com
+      kind: Subscription
+      jqPathExpressions:
+        - .status
+        - .spec.installPlanRef
+    - group: operators.coreos.com
+      kind: ClusterServiceVersion
+      jqPathExpressions:
+        - .status

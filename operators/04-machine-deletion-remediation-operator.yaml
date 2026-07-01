@@ -1,0 +1,42 @@
+# Machine Deletion Remediation Operator (alternative remediation backend)
+# InstallPlan approval order: 4 of 6
+# Only valid on clusters with Machine API-backed nodes.
+# Approve after node-maintenance; typically choose ONE remediation backend
+# (SNR, FAR, or MDR) for production workloads.
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: machine-deletion-remediation
+  namespace: openshift-workload-availability
+  labels:
+    app.kubernetes.io/name: machine-deletion-remediation
+    app.kubernetes.io/component: operator
+  annotations:
+    argocd.argoproj.io/sync-wave: "22"
+    ocpvirt-workloads-ha/install-plan-order: "4"
+spec:
+  channel: stable
+  installPlanApproval: Manual
+  name: machine-deletion-remediation
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+  config:
+    nodeSelector:
+      node-role.kubernetes.io/worker: ""
+    tolerations: []
+---
+apiVersion: machine-deletion-remediation.medik8s.io/v1alpha1
+kind: MachineDeletionRemediationTemplate
+metadata:
+  name: machine-deletion-template
+  namespace: openshift-workload-availability
+  labels:
+    app.kubernetes.io/name: machine-deletion-remediation
+    app.kubernetes.io/component: instance
+  annotations:
+    argocd.argoproj.io/sync-wave: "50"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  template:
+    spec: {}

@@ -1,0 +1,23 @@
+# Dedicated namespace and OperatorGroup for the Cluster Kube Descheduler Operator.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: openshift-kube-descheduler-operator
+  labels:
+    openshift.io/cluster-monitoring: "true"
+    app.kubernetes.io/part-of: ocpvirt-workloads-ha
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+---
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: openshift-kube-descheduler-operator
+  namespace: openshift-kube-descheduler-operator
+  labels:
+    app.kubernetes.io/part-of: ocpvirt-workloads-ha
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  targetNamespaces:
+    - openshift-kube-descheduler-operator

@@ -1,0 +1,86 @@
+# Fence Agents Remediation Operator with HPE iLO configuration
+# InstallPlan approval order: 3 of 6
+#
+# HPE iLO prerequisites:
+#   - Dedicated iLO user with at least "Virtual Power and Reset" privilege
+#   - iLO management network reachable from openshift-workload-availability pods
+#   - Node names in nodeparameters must match Kubernetes node names exactly
+#
+# Agent selection:
+#   - fence_ilo4  — HPE iLO 4 and iLO 5 (IPMI LAN+, recommended)
+#   - fence_ilo5  — HPE iLO 5 only (use if fence_ilo4 fails on your firmware)
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: fence-agents-remediation
+  namespace: openshift-workload-availability
+  labels:
+    app.kubernetes.io/name: fence-agents-remediation
+    app.kubernetes.io/component: operator
+  annotations:
+    argocd.argoproj.io/sync-wave: "21"
+    ocpvirt-workloads-ha/install-plan-order: "3"
+spec:
+  channel: stable
+  installPlanApproval: Manual
+  name: fence-agents-remediation
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+  config:
+    nodeSelector:
+      node-role.kubernetes.io/worker: ""
+    tolerations: []
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: fence-agents-credentials-hpe-ilo
+  namespace: openshift-workload-availability
+  labels:
+    app.kubernetes.io/name: fence-agents-remediation
+    app.kubernetes.io/component: instance
+  annotations:
+    argocd.argoproj.io/sync-wave: "50"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+type: Opaque
+stringData:
+  # iLO account — replace before production use (consider Sealed Secrets / ESO)
+  username: CHANGE_ME_ILO_USER
+  password: CHANGE_ME_ILO_PASSWORD
+---
+apiVersion: fence-agents-remediation.medik8s.io/v1alpha1
+kind: FenceAgentsRemediationTemplate
+metadata:
+  name: far-template-hpe-ilo4
+  namespace: openshift-workload-availability
+  labels:
+    app.kubernetes.io/name: fence-agents-remediation
+    app.kubernetes.io/component: instance
+  annotations:
+    argocd.argoproj.io/sync-wave: "51"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  template:
+    spec:
+      agent: fence_ilo4
+      remediationStrategy: ResourceDeletion
+      retrycount: 5
+      retryinterval: 5s
+      timeout: 120s
+      sharedSecretName: fence-agents-credentials-hpe-ilo
+      sharedparameters:
+        lanplus: "1"
+        pcmk_host_check: static-list
+        method: reboot
+      nodeparameters:
+        # Map each OpenShift node name to its iLO management IP.
+        worker-0.example.com:
+          ipaddr: 192.0.2.10
+          plug: "1"
+        worker-1.example.com:
+          ipaddr: 192.0.2.11
+          plug: "1"
+        worker-2.example.com:
+          ipaddr: 192.0.2.12
+          plug: "1"

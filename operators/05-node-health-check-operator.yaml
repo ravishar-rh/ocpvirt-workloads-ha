@@ -1,0 +1,58 @@
+# Node Health Check Operator
+# InstallPlan approval order: 5 of 6
+# Approve after fence-agents-remediation operator is installed and the HPE iLO
+# FenceAgentsRemediationTemplate exists (far-template-hpe-ilo4).
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: node-healthcheck-operator
+  namespace: openshift-workload-availability
+  labels:
+    app.kubernetes.io/name: node-healthcheck-operator
+    app.kubernetes.io/component: operator
+  annotations:
+    argocd.argoproj.io/sync-wave: "30"
+    ocpvirt-workloads-ha/install-plan-order: "5"
+spec:
+  channel: stable
+  installPlanApproval: Manual
+  name: node-healthcheck-operator
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+  config:
+    nodeSelector:
+      node-role.kubernetes.io/worker: ""
+    tolerations: []
+---
+apiVersion: remediation.medik8s.io/v1alpha1
+kind: NodeHealthCheck
+metadata:
+  name: nhc-all-linux-nodes
+  namespace: openshift-workload-availability
+  labels:
+    app.kubernetes.io/name: node-healthcheck-operator
+    app.kubernetes.io/component: instance
+  annotations:
+    argocd.argoproj.io/sync-wave: "52"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  minHealthy: 51%
+  selector:
+    matchExpressions:
+      - key: kubernetes.io/os
+        operator: In
+        values:
+          - linux
+  unhealthyConditions:
+    - type: Ready
+      status: "False"
+      duration: 300s
+    - type: Ready
+      status: Unknown
+      duration: 300s
+  remediationTemplate:
+    apiVersion: fence-agents-remediation.medik8s.io/v1alpha1
+    kind: FenceAgentsRemediationTemplate
+    name: far-template-hpe-ilo4
+    namespace: openshift-workload-availability
