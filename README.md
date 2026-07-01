@@ -21,11 +21,11 @@ cluster before the operator CSV is installed.
 ocpvirt-workloads-ha/
 ├── kustomization.yaml            # Operators only (base + subscriptions)
 ├── bootstrap/
-│   └── gitops-rbac.yaml          # Apply once as cluster-admin (before GitOps)
+│   └── kustomization.yaml        # Apply once as cluster-admin (before GitOps)
 ├── argocd/
 │   ├── application.yaml          # Operators Application (automated sync)
 │   └── application-instances.yaml # Instances Application (manual sync)
-├── base/                         # Namespaces + OperatorGroups
+├── base/                         # Namespaces, OperatorGroups, GitOps RBAC
 ├── operators/                    # OLM Subscriptions only
 └── instances/                    # Secret + CR instances (sync after operators)
 ```
@@ -69,6 +69,7 @@ Node Health Check uses the FAR template `far-template-hpe-ilo4` for remediation
 | Wave | Resources |
 |-----:|-----------|
 | 0–1 | Both namespaces and OperatorGroups (workload-availability uses AllNamespaces mode) |
+| 2 | GitOps RBAC (ClusterRole, Secret Role, RoleBindings) |
 | 10 | Node Maintenance Subscription |
 | 20 | Fence Agents Remediation Subscription |
 | 30 | Node Health Check Subscription |
@@ -155,22 +156,36 @@ Run in this order:
 
 ### 1. Grant GitOps RBAC (cluster-admin, once)
 
-OpenShift GitOps cannot create Secrets in `openshift-*` namespaces without
-explicit permission. Instance CRs (`NodeHealthCheck`, etc.) also require a
-ClusterRole because OLM evaluates those permissions at cluster scope:
+OpenShift GitOps cannot patch Secrets in `openshift-*` namespaces without
+explicit permission (including `patch` for ServerSideApply). Instance CRs
+(`NodeHealthCheck`, etc.) also require a ClusterRole because OLM evaluates those
+permissions at cluster scope.
+
+Apply bootstrap once as cluster-admin, then the operators Application keeps the
+same RBAC in sync from `base/gitops-rbac.yaml`:
 
 ```bash
-oc apply -f bootstrap/gitops-rbac.yaml
+oc apply -k bootstrap/
 ```
 
-Verify the ClusterRoleBinding exists:
+Verify permissions:
 
 ```bash
 oc get clusterrolebinding openshift-gitops-ocpvirt-workloads-ha-instances
+oc get rolebinding openshift-gitops-ocpvirt-workloads-ha-secrets \
+  -n openshift-workload-availability
+
+oc auth can-i patch secrets \
+  --as=system:serviceaccount:openshift-gitops:openshift-gitops-argocd-application-controller \
+  -n openshift-workload-availability
+
 oc auth can-i patch nodehealthchecks.remediation.medik8s.io \
   --as=system:serviceaccount:openshift-gitops:openshift-gitops-argocd-application-controller \
   -n openshift-workload-availability
 ```
+
+Both `patch secrets` and `patch nodehealthchecks...` must answer **yes** before
+syncing instances.
 
 ### 2. Register Applications
 
@@ -210,8 +225,8 @@ oc patch application ocpvirt-workloads-ha-instances -n openshift-gitops --type m
 
 | Error | Cause | Fix |
 |-------|-------|-----|
-| `cannot patch resource "secrets"` | GitOps SA lacks RBAC in operator namespaces | `oc apply -f bootstrap/gitops-rbac.yaml` |
-| `cannot patch resource "nodehealthchecks"` | Missing ClusterRole for instance CRDs | Re-apply `bootstrap/gitops-rbac.yaml` (includes ClusterRole) |
+| `cannot patch resource "secrets"` | GitOps SA lacks Secret RBAC in operator namespace | `oc apply -k bootstrap/` then verify `oc auth can-i patch secrets ...` |
+| `cannot patch resource "nodehealthchecks"` | Missing ClusterRole for instance CRDs | Re-apply `oc apply -k bootstrap/` |
 | `FenceAgentsRemediationTemplate` not syncing | Wrong `nodeparameters` shape or unknown node names | Use parameter-first maps; set real node names from `oc get nodes` |
 | `Resource not found: Secret/fence-agents-credentials-hpe-ilo` | Instances Application not synced yet, or sync failed on Secret | Sync `ocpvirt-workloads-ha-instances`; verify `oc get secret fence-agents-credentials-hpe-ilo -n openshift-workload-availability` |
 | `KubeDescheduler` not found | Descheduler operator not installed yet | Approve descheduler InstallPlan; then sync instances |

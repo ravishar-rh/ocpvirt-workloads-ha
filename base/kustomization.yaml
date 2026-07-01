@@ -4,3 +4,4 @@ kind: Kustomization
 resources:
   - namespace-openshift-workload-availability.yaml
   - namespace-openshift-kube-descheduler-operator.yaml
+  - gitops-rbac.yaml

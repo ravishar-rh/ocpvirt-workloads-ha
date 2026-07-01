@@ -1,9 +1,8 @@
-# Apply once as cluster-admin BEFORE Argo CD Applications:
-#   oc apply -f bootstrap/gitops-rbac.yaml
+# OpenShift GitOps RBAC for instance CRs and Secrets.
+# Apply once as cluster-admin before syncing instances (RoleBindings require bind):
+#   oc apply -f base/gitops-rbac.yaml
 #
-# Grants the OpenShift GitOps application-controller permission to manage
-# Secrets in openshift-* operator namespaces (RoleBinding) and instance CRs
-# such as NodeHealthCheck (ClusterRole — evaluated at cluster scope by OLM).
+# Also included in the operators Application (base/) so Argo CD keeps it in sync.
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -11,6 +10,8 @@ metadata:
   name: openshift-gitops-ocpvirt-workloads-ha-instances
   labels:
     app.kubernetes.io/part-of: ocpvirt-workloads-ha
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
 rules:
   - apiGroups:
       - remediation.medik8s.io
@@ -55,10 +56,54 @@ metadata:
   name: openshift-gitops-ocpvirt-workloads-ha-instances
   labels:
     app.kubernetes.io/part-of: ocpvirt-workloads-ha
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
   name: openshift-gitops-ocpvirt-workloads-ha-instances
+subjects:
+  - kind: ServiceAccount
+    name: openshift-gitops-argocd-application-controller
+    namespace: openshift-gitops
+---
+# Explicit Secret permissions (required for ServerSideApply / patch on fence-agents secret).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: openshift-gitops-ocpvirt-workloads-ha-secrets
+  namespace: openshift-workload-availability
+  labels:
+    app.kubernetes.io/part-of: ocpvirt-workloads-ha
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: openshift-gitops-ocpvirt-workloads-ha-secrets
+  namespace: openshift-workload-availability
+  labels:
+    app.kubernetes.io/part-of: ocpvirt-workloads-ha
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: openshift-gitops-ocpvirt-workloads-ha-secrets
 subjects:
   - kind: ServiceAccount
     name: openshift-gitops-argocd-application-controller
@@ -71,6 +116,8 @@ metadata:
   namespace: openshift-workload-availability
   labels:
     app.kubernetes.io/part-of: ocpvirt-workloads-ha
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -87,6 +134,8 @@ metadata:
   namespace: openshift-kube-descheduler-operator
   labels:
     app.kubernetes.io/part-of: ocpvirt-workloads-ha
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
