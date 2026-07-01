@@ -1,9 +1,8 @@
 # ocpvirt-workloads-ha
 
 Kustomize manifests for deploying OpenShift workload-availability operators on
-bare-metal clusters with HPE iLO fencing. Remediation uses Fence Agents
-Remediation (FAR) only — Self Node Remediation and Machine Deletion Remediation
-are excluded (no Machine API).
+bare-metal clusters with HPE iLO out-of-band fencing via Fence Agents
+Remediation (FAR).
 
 All operator Subscriptions use `installPlanApproval: Manual`. Argo CD syncs the
 Subscription objects immediately; you approve each InstallPlan manually in the
@@ -62,24 +61,8 @@ oc get csv -n openshift-workload-availability
 
 Repeat for `openshift-kube-descheduler-operator` after step 3.
 
-### Remediation backend
-
-This bundle uses **Fence Agents Remediation with HPE iLO** as the sole
-remediation backend for Node Health Check. Self Node Remediation and Machine
-Deletion Remediation are not included.
-
-If those operators were previously installed on the cluster, remove them after
-syncing this repo (Argo CD prune may handle subscriptions; clean up CSVs if
-needed):
-
-```bash
-oc delete subscription self-node-remediation machine-deletion-remediation \
-  -n openshift-workload-availability --ignore-not-found
-
-oc delete csv -n openshift-workload-availability \
-  $(oc get csv -n openshift-workload-availability \
-    -o name | grep -E 'self-node-remediation|machine-deletion-remediation' || true)
-```
+Node Health Check uses the FAR template `far-template-hpe-ilo4` for remediation
+(see `instances/node-health-check.yaml`).
 
 ## Argo CD sync waves
 
