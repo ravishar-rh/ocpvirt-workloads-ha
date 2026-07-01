@@ -20,19 +20,15 @@ cluster before the operator CSV is installed.
 
 ```
 ocpvirt-workloads-ha/
-├── kustomization.yaml          # Root kustomization
+├── kustomization.yaml            # Operators only (base + subscriptions)
+├── bootstrap/
+│   └── gitops-rbac.yaml          # Apply once as cluster-admin (before GitOps)
 ├── argocd/
-│   └── application.yaml        # Argo CD Application (bootstrap)
-├── base/                       # Namespaces + OperatorGroups
-│   ├── kustomization.yaml
-│   ├── namespace-openshift-workload-availability.yaml
-│   └── namespace-openshift-kube-descheduler-operator.yaml
-└── operators/                  # One YAML file per operator (+ instances)
-    ├── kustomization.yaml
-    ├── 01-node-maintenance-operator.yaml
-    ├── 02-fence-agents-remediation-operator.yaml
-    ├── 03-node-health-check-operator.yaml
-    └── 04-kube-descheduler-operator.yaml
+│   ├── application.yaml          # Operators Application (automated sync)
+│   └── application-instances.yaml # Instances Application (manual sync)
+├── base/                         # Namespaces + OperatorGroups
+├── operators/                    # OLM Subscriptions only
+└── instances/                    # Secret + CR instances (sync after operators)
 ```
 
 ## InstallPlan manual approval order
@@ -94,10 +90,11 @@ oc delete csv -n openshift-workload-availability \
 | 20 | Fence Agents Remediation Subscription |
 | 30 | Node Health Check Subscription |
 | 40 | Descheduler Subscription |
-| 50–55 | CR instances (FAR template, secret, NodeHealthCheck, KubeDescheduler) |
 
-Instance CRs use `SkipDryRunOnMissingResource=true` so Argo CD does not fail
-dry-run before operator CRDs exist.
+Instance CRs (Secret, templates, NodeHealthCheck, KubeDescheduler) are in
+`instances/` and sync via a **separate** Application after all operator CSVs
+reach `Succeeded`. This avoids "resource not found" errors when CRDs do not
+exist yet.
 
 ### OperatorGroup install mode
 
@@ -169,17 +166,69 @@ oc patch application ocpvirt-workloads-ha -n openshift-gitops --type merge \
   -p '{"operation":{"sync":{}}}'
 ```
 
+## Deployment workflow
+
+Run in this order:
+
+### 1. Grant GitOps RBAC (cluster-admin, once)
+
+OpenShift GitOps cannot create Secrets in `openshift-*` namespaces without
+explicit permission:
+
+```bash
+oc apply -f bootstrap/gitops-rbac.yaml
+```
+
+### 2. Register Applications
+
+```bash
+oc apply -f argocd/application.yaml
+oc apply -f argocd/application-instances.yaml
+```
+
+- `ocpvirt-workloads-ha` — operators (automated sync)
+- `ocpvirt-workloads-ha-instances` — CR instances (**manual sync only**)
+
+### 3. Approve operator InstallPlans
+
+Follow the [InstallPlan order](#installplan-manual-approval-order) until all
+four CSVs show `Succeeded`:
+
+```bash
+oc get csv -n openshift-workload-availability
+oc get csv -n openshift-kube-descheduler-operator
+```
+
+### 4. Customize instances in Git, then sync
+
+Edit `instances/fence-agents-secret.yaml` and
+`instances/fence-agents-remediation-template.yaml` (iLO credentials and node
+map), push to Git, then:
+
+```bash
+oc patch application ocpvirt-workloads-ha-instances -n openshift-gitops --type merge \
+  -p '{"metadata":{"annotations":{"argocd.argoproj.io/refresh":"hard"}}}'
+
+oc patch application ocpvirt-workloads-ha-instances -n openshift-gitops --type merge \
+  -p '{"operation":{"sync":{}}}'
+```
+
+### Troubleshooting sync errors
+
+| Error | Cause | Fix |
+|-------|-------|-----|
+| `cannot patch resource "secrets"` | GitOps SA lacks RBAC in operator namespaces | `oc apply -f bootstrap/gitops-rbac.yaml` |
+| `FenceAgentsRemediationTemplate` not found | FAR operator not installed yet | Approve FAR InstallPlan; sync instances **after** CSV Succeeded |
+| `KubeDescheduler` not found | Descheduler operator not installed yet | Approve descheduler InstallPlan; then sync instances |
+
 ## Site-specific customization
 
-Before pointing Argo CD at this repo, update:
+Before syncing instances, update in Git:
 
-1. **HPE iLO credentials and node map** —
-   `operators/02-fence-agents-remediation-operator.yaml`
-   - Replace `CHANGE_ME_ILO_USER` / `CHANGE_ME_ILO_PASSWORD` in the Secret
-   - Update `nodeparameters` with your OpenShift node names and iLO management IPs
-   - Ensure each iLO user has at least **Virtual Power and Reset** privilege
-2. **Node Health Check remediation template** — points to `far-template-hpe-ilo4`
-   in `operators/03-node-health-check-operator.yaml`
+1. **HPE iLO credentials** — `instances/fence-agents-secret.yaml`
+2. **BMC node map** — `instances/fence-agents-remediation-template.yaml`
+   (`nodeparameters` must match OpenShift node names)
+3. **Node Health Check** — `instances/node-health-check.yaml` (if needed)
 
 ### HPE iLO setup
 
@@ -207,36 +256,27 @@ the template.
 
 ## Argo CD bootstrap
 
-Apply the Application manifest once after pushing this repo to GitHub:
+See [Deployment workflow](#deployment-workflow) for the full sequence.
+
+The operator Application uses automated sync with prune and self-heal. The
+instances Application has **no automated sync** — trigger it manually after
+operators are installed.
+
+### Manage Applications with oc
 
 ```bash
-# Edit repo URL first if needed
-vi argocd/application.yaml
-
-oc apply -f argocd/application.yaml
-```
-
-The Application lives at `argocd/application.yaml` and is **not** included in the
-root Kustomize build (bootstrap is separate from workload sync).
-
-Key settings:
-
-- **Automated sync** with prune and self-heal
-- **ServerSideApply** for large CRs
-- **ignoreDifferences** on Subscription/CSV status fields managed by OLM
-
-### Manage the Application with oc
-
-```bash
-# Status and sync health
+# Operator Application status
 oc get application ocpvirt-workloads-ha -n openshift-gitops
 oc describe application ocpvirt-workloads-ha -n openshift-gitops
 
-# Pull latest commit from Git (after you push manifest changes)
+# Instances Application status
+oc get application ocpvirt-workloads-ha-instances -n openshift-gitops
+oc describe application ocpvirt-workloads-ha-instances -n openshift-gitops
+
+# Refresh and sync operators
 oc patch application ocpvirt-workloads-ha -n openshift-gitops --type merge \
   -p '{"metadata":{"annotations":{"argocd.argoproj.io/refresh":"hard"}}}'
 
-# Trigger a sync manually (if automated sync is disabled or you want to force it)
 oc patch application ocpvirt-workloads-ha -n openshift-gitops --type merge \
   -p '{"operation":{"sync":{}}}'
 ```
@@ -244,14 +284,22 @@ oc patch application ocpvirt-workloads-ha -n openshift-gitops --type merge \
 ## Local validation
 
 ```bash
-oc kustomize .
+oc kustomize .              # operators
+oc kustomize instances/     # CR instances
 ```
 
 ## Operator summary
 
-| File | Operator package | Instances included |
-|------|------------------|-------------------|
-| `01-node-maintenance-operator.yaml` | `node-maintenance-operator` | None |
-| `02-fence-agents-remediation-operator.yaml` | `fence-agents-remediation` | HPE iLO Secret + `FenceAgentsRemediationTemplate` (`far-template-hpe-ilo4`) |
-| `03-node-health-check-operator.yaml` | `node-healthcheck-operator` | `NodeHealthCheck` |
-| `04-kube-descheduler-operator.yaml` | `cluster-kube-descheduler-operator` | `KubeDescheduler` |
+| File | Operator package | Instances |
+|------|------------------|-----------|
+| `operators/01-node-maintenance-operator.yaml` | `node-maintenance-operator` | None |
+| `operators/02-fence-agents-remediation-operator.yaml` | `fence-agents-remediation` | See `instances/` |
+| `operators/03-node-health-check-operator.yaml` | `node-healthcheck-operator` | See `instances/` |
+| `operators/04-kube-descheduler-operator.yaml` | `cluster-kube-descheduler-operator` | See `instances/` |
+
+| Instance file | Resource |
+|---------------|----------|
+| `instances/fence-agents-secret.yaml` | iLO credentials Secret |
+| `instances/fence-agents-remediation-template.yaml` | `FenceAgentsRemediationTemplate` |
+| `instances/node-health-check.yaml` | `NodeHealthCheck` |
+| `instances/kube-descheduler.yaml` | `KubeDescheduler` |

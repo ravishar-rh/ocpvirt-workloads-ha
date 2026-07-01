@@ -1,0 +1,29 @@
+# Sync manually after all operator CSVs reach Succeeded (see README).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ocpvirt-workloads-ha-instances
+  namespace: openshift-gitops
+  labels:
+    app.kubernetes.io/name: ocpvirt-workloads-ha-instances
+    app.kubernetes.io/part-of: ocpvirt-workloads-ha
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ravishar-rh/ocpvirt-workloads-ha.git
+    targetRevision: main
+    path: instances
+  destination:
+    server: https://kubernetes.default.svc
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+  ignoreDifferences:
+    - group: ""
+      kind: Secret
+      jsonPointers:
+        - /data
+        - /stringData

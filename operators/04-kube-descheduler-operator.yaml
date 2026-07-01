@@ -1,7 +1,6 @@
 # Cluster Kube Descheduler Operator
 # InstallPlan approval order: 4 of 4
-# Namespace and OperatorGroup live in base/namespace-openshift-kube-descheduler-operator.yaml.
-# Approve after node-health-check operator is installed.
+# KubeDescheduler CR is in ../instances/ — sync after descheduler operator CSV is Succeeded.
 ---
 apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription
@@ -24,29 +23,3 @@ spec:
     nodeSelector:
       node-role.kubernetes.io/worker: ""
     tolerations: []
----
-apiVersion: operator.openshift.io/v1
-kind: KubeDescheduler
-metadata:
-  name: cluster
-  namespace: openshift-kube-descheduler-operator
-  labels:
-    app.kubernetes.io/name: cluster-kube-descheduler-operator
-    app.kubernetes.io/component: instance
-  annotations:
-    argocd.argoproj.io/sync-wave: "55"
-    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
-spec:
-  managementState: Managed
-  profiles:
-    - LifecycleAndUtilization
-  profileCustomizations:
-    devLowNodeUtilizationThresholds:
-      thresholds:
-        cpu: 30
-        memory: 30
-        pods: 30
-      targetThresholds:
-        cpu: 75
-        memory: 75
-        pods: 75

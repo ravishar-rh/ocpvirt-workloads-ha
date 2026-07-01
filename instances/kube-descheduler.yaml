@@ -1,0 +1,24 @@
+apiVersion: operator.openshift.io/v1
+kind: KubeDescheduler
+metadata:
+  name: cluster
+  namespace: openshift-kube-descheduler-operator
+  labels:
+    app.kubernetes.io/name: cluster-kube-descheduler-operator
+    app.kubernetes.io/component: instance
+  annotations:
+    argocd.argoproj.io/sync-wave: "40"
+spec:
+  managementState: Managed
+  profiles:
+    - LifecycleAndUtilization
+  profileCustomizations:
+    devLowNodeUtilizationThresholds:
+      thresholds:
+        cpu: 30
+        memory: 30
+        pods: 30
+      targetThresholds:
+        cpu: 75
+        memory: 75
+        pods: 75

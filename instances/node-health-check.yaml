@@ -1,0 +1,30 @@
+apiVersion: remediation.medik8s.io/v1alpha1
+kind: NodeHealthCheck
+metadata:
+  name: nhc-all-linux-nodes
+  namespace: openshift-workload-availability
+  labels:
+    app.kubernetes.io/name: node-healthcheck-operator
+    app.kubernetes.io/component: instance
+  annotations:
+    argocd.argoproj.io/sync-wave: "30"
+spec:
+  minHealthy: 51%
+  selector:
+    matchExpressions:
+      - key: kubernetes.io/os
+        operator: In
+        values:
+          - linux
+  unhealthyConditions:
+    - type: Ready
+      status: "False"
+      duration: 300s
+    - type: Ready
+      status: Unknown
+      duration: 300s
+  remediationTemplate:
+    apiVersion: fence-agents-remediation.medik8s.io/v1alpha1
+    kind: FenceAgentsRemediationTemplate
+    name: far-template-hpe-ilo4
+    namespace: openshift-workload-availability
