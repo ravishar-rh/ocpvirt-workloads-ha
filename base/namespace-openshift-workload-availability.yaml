@@ -1,5 +1,7 @@
 # Shared namespace and OperatorGroup for workload-availability operators.
-# Descheduler uses a separate namespace (see 06-kube-descheduler-operator.yaml).
+# OperatorGroup uses AllNamespaces mode (no targetNamespaces) because FAR, MDR,
+# SNR, and NHC only support AllNamespaces install mode per their CSV.
+# Descheduler uses a separate namespace (base/namespace-openshift-kube-descheduler-operator.yaml).
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -19,6 +21,4 @@ metadata:
     app.kubernetes.io/part-of: ocpvirt-workloads-ha
   annotations:
     argocd.argoproj.io/sync-wave: "1"
-spec:
-  targetNamespaces:
-    - openshift-workload-availability
+# AllNamespaces install mode — required by Medik8s workload-availability operators.

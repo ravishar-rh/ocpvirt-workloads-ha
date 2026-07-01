@@ -11,8 +11,9 @@ cluster before the operator CSV is installed.
 ## Prerequisites
 
 - OpenShift 4.x cluster with the built-in `redhat-operators` catalog
+- OpenShift GitOps operator installed (`openshift-gitops` namespace)
 - Cluster admin or sufficient RBAC to create Subscriptions and CRs
-- Argo CD with permission to sync cluster-scoped and namespace-scoped resources
+- All cluster operations below use `oc` only (no `argocd` CLI required)
 
 ## Layout
 
@@ -89,7 +90,7 @@ their InstallPlan approvals.
 
 | Wave | Resources |
 |-----:|-----------|
-| 0–1 | Both namespaces and OperatorGroups (`openshift-workload-availability`, `openshift-kube-descheduler-operator`) |
+| 0–1 | Both namespaces and OperatorGroups (workload-availability uses AllNamespaces mode) |
 | 10 | Node Maintenance Subscription |
 | 20–22 | Remediation operator Subscriptions |
 | 30 | Node Health Check Subscription |
@@ -98,6 +99,37 @@ their InstallPlan approvals.
 
 Instance CRs use `SkipDryRunOnMissingResource=true` so Argo CD does not fail
 dry-run before operator CRDs exist.
+
+### OperatorGroup install mode
+
+The `openshift-workload-availability` OperatorGroup intentionally has **no**
+`spec.targetNamespaces`. This configures AllNamespaces install mode, which is
+required by Fence Agents Remediation, Machine Deletion Remediation, Self Node
+Remediation, and Node Health Check (their CSVs set `OwnNamespace: supported:
+false`).
+
+The descheduler OperatorGroup in `openshift-kube-descheduler-operator` keeps
+`targetNamespaces` because that operator supports OwnNamespace.
+
+If operators show `OwnNamespace InstallModeType not supported`, patch the
+OperatorGroup and let subscriptions reconcile:
+
+```bash
+oc patch operatorgroup openshift-workload-availability \
+  -n openshift-workload-availability --type json \
+  -p='[{"op":"remove","path":"/spec/targetNamespaces"}]'
+
+# Verify failed CSVs recover (may take a minute)
+oc get csv -n openshift-workload-availability
+oc get subscription -n openshift-workload-availability
+```
+
+If CSVs remain stuck, delete the failed CSV and re-approve the InstallPlan:
+
+```bash
+oc delete csv <failed-csv-name> -n openshift-workload-availability
+oc get installplan -n openshift-workload-availability
+```
 
 ## Site-specific customization
 
@@ -138,14 +170,13 @@ the template.
 
 ## Argo CD bootstrap
 
-Apply the Application manifest once after pushing this directory to your Git
-repository:
+Apply the Application manifest once after pushing this repo to GitHub:
 
 ```bash
-# Edit repo URL first
-vi ocpvirt-workloads-ha/argocd/application.yaml
+# Edit repo URL first if needed
+vi argocd/application.yaml
 
-oc apply -f ocpvirt-workloads-ha/argocd/application.yaml
+oc apply -f argocd/application.yaml
 ```
 
 The Application lives at `argocd/application.yaml` and is **not** included in the
@@ -157,10 +188,26 @@ Key settings:
 - **ServerSideApply** for large CRs
 - **ignoreDifferences** on Subscription/CSV status fields managed by OLM
 
+### Manage the Application with oc
+
+```bash
+# Status and sync health
+oc get application ocpvirt-workloads-ha -n openshift-gitops
+oc describe application ocpvirt-workloads-ha -n openshift-gitops
+
+# Pull latest commit from Git (after you push manifest changes)
+oc patch application ocpvirt-workloads-ha -n openshift-gitops --type merge \
+  -p '{"metadata":{"annotations":{"argocd.argoproj.io/refresh":"hard"}}}'
+
+# Trigger a sync manually (if automated sync is disabled or you want to force it)
+oc patch application ocpvirt-workloads-ha -n openshift-gitops --type merge \
+  -p '{"operation":{"sync":{}}}'
+```
+
 ## Local validation
 
 ```bash
-kubectl kustomize ocpvirt-workloads-ha/
+oc kustomize .
 ```
 
 ## Operator summary

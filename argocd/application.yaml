@@ -1,5 +1,5 @@
-# Bootstrap manifest — apply once to register this repo with Argo CD.
-# Update spec.source.repoURL before applying.
+# Bootstrap manifest — apply once with: oc apply -f argocd/application.yaml
+# Manage sync via oc patch on the Application in openshift-gitops (see README).
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
