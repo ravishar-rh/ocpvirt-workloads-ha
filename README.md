@@ -213,6 +213,7 @@ oc patch application ocpvirt-workloads-ha-instances -n openshift-gitops --type m
 | `cannot patch resource "secrets"` | GitOps SA lacks RBAC in operator namespaces | `oc apply -f bootstrap/gitops-rbac.yaml` |
 | `cannot patch resource "nodehealthchecks"` | Missing ClusterRole for instance CRDs | Re-apply `bootstrap/gitops-rbac.yaml` (includes ClusterRole) |
 | `FenceAgentsRemediationTemplate` not syncing | Wrong `nodeparameters` shape or unknown node names | Use parameter-first maps; set real node names from `oc get nodes` |
+| `Resource not found: Secret/fence-agents-credentials-hpe-ilo` | Instances Application not synced yet, or sync failed on Secret | Sync `ocpvirt-workloads-ha-instances`; verify `oc get secret fence-agents-credentials-hpe-ilo -n openshift-workload-availability` |
 | `KubeDescheduler` not found | Descheduler operator not installed yet | Approve descheduler InstallPlan; then sync instances |
 | `is part of applications X and Y` | Two Applications manage the same resource | Delete the extra Application (see below) |
 
@@ -261,10 +262,15 @@ Do **not** create a third Application for the same `instances/` path. Use
 
 Before syncing instances, update in Git:
 
-1. **HPE iLO credentials** — `instances/fence-agents-secret.yaml`
+1. **HPE iLO credentials** — `instances/fence-agents-secret.yaml` (ships with
+   placeholder `ilo-admin` / `changeme`; replace before production)
 2. **BMC node map** — `instances/fence-agents-remediation-template.yaml`
    (`nodeparameters` must match OpenShift node names)
 3. **Node Health Check** — `instances/node-health-check.yaml` (if needed)
+
+The Secret is managed by `ocpvirt-workloads-ha-instances`. It is created on sync
+and **deleted when that Application is removed** (via the Argo CD resources
+finalizer and `Prune=true` sync option).
 
 ### HPE iLO setup
 
@@ -362,7 +368,7 @@ oc kustomize instances/     # CR instances
 
 | Instance file | Resource |
 |---------------|----------|
-| `instances/fence-agents-secret.yaml` | iLO credentials Secret |
+| `instances/fence-agents-secret.yaml` | iLO credentials Secret (`ilo-admin` / `changeme` placeholders) |
 | `instances/fence-agents-remediation-template.yaml` | `FenceAgentsRemediationTemplate` |
 | `instances/node-health-check.yaml` | `NodeHealthCheck` |
 | `instances/kube-descheduler.yaml` | `KubeDescheduler` (`devLowNodeUtilizationThresholds: Medium`) |
