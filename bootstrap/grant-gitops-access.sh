@@ -12,7 +12,7 @@ TARGET_NAMESPACES=(
 )
 
 echo "==> Applying ClusterRole RBAC for instance CRDs..."
-oc apply -k "${ROOT}/bootstrap/"
+oc apply -f "${ROOT}/base/gitops-rbac.yaml"
 
 for ns in "${TARGET_NAMESPACES[@]}"; do
   echo "==> Granting GitOps access in ${ns}..."

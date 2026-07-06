@@ -21,7 +21,7 @@ cluster before the operator CSV is installed.
 ocpvirt-workloads-ha/
 ├── kustomization.yaml            # Operators only (base + subscriptions)
 ├── bootstrap/
-│   └── kustomization.yaml        # Apply once as cluster-admin (before GitOps)
+│   └── grant-gitops-access.sh    # Run once as cluster-admin (before GitOps)
 ├── argocd/
 │   ├── application.yaml          # Operators Application (automated sync)
 │   └── application-instances.yaml # Instances Application (manual sync)
@@ -169,7 +169,7 @@ Run once as cluster-admin to grant GitOps access for instance CRs:
 Manual equivalent:
 
 ```bash
-oc apply -k bootstrap/
+oc apply -f base/gitops-rbac.yaml
 oc label namespace openshift-workload-availability argocd.argoproj.io/managed-by=openshift-gitops --overwrite
 oc label namespace openshift-kube-descheduler-operator argocd.argoproj.io/managed-by=openshift-gitops --overwrite
 oc adm policy add-role-to-user admin \
