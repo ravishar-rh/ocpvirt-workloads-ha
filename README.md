@@ -273,6 +273,7 @@ oc patch application ocpvirt-workloads-ha-instances -n openshift-gitops --type m
 | `cannot patch resource "nodehealthchecks"` | Missing ClusterRole for instance CRDs | Run `./bootstrap/grant-gitops-access.sh` |
 | `FenceAgentsRemediationTemplate` not syncing | Wrong `nodeparameters` shape or unknown node names | Use parameter-first maps; set real node names from `oc get nodes` |
 | `KubeDescheduler` not found | Descheduler operator not installed yet | Approve descheduler InstallPlan; then sync instances |
+| `HCOMisconfiguredDescheduler` / Virt operator degraded | Wrong descheduler profile for CNV | Use `KubeVirtRelieveAndMigrate` (not `LifecycleAndUtilization`) in `instances/kube-descheduler.yaml` |
 | `is part of applications X and Y` | Two Applications manage the same resource | Delete the extra Application (see below) |
 
 ### Duplicate Application ownership
@@ -429,4 +430,4 @@ oc kustomize instances/     # CR instances
 |---------------|----------|
 | `instances/fence-agents-remediation-template.yaml` | `FenceAgentsRemediationTemplate` (includes iLO credentials in `sharedparameters`) |
 | `instances/node-health-check.yaml` | `NodeHealthCheck` |
-| `instances/kube-descheduler.yaml` | `KubeDescheduler` (`devLowNodeUtilizationThresholds: Medium`) |
+| `instances/kube-descheduler.yaml` | `KubeDescheduler` (`KubeVirtRelieveAndMigrate`, `Medium` thresholds) |

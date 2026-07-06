@@ -1,3 +1,6 @@
+# KubeVirt-compatible descheduler profile — required when OpenShift Virtualization is installed.
+# LifecycleAndUtilization triggers HCOMisconfiguredDescheduler and degrades the Virt operator.
+# See: https://kubevirt.io/monitoring/runbooks/HCOMisconfiguredDescheduler.html
 apiVersion: operator.openshift.io/v1
 kind: KubeDescheduler
 metadata:
@@ -10,11 +13,13 @@ metadata:
     argocd.argoproj.io/sync-wave: "40"
 spec:
   managementState: Managed
+  mode: Automatic
   profiles:
-    - LifecycleAndUtilization
+    - KubeVirtRelieveAndMigrate
   profileCustomizations:
     # Preset thresholds for LowNodeUtilization (string, not an object):
     #   Low    — 10% underutilized / 30% overutilized
     #   Medium — 20% underutilized / 50% overutilized (default)
     #   High   — 40% underutilized / 70% overutilized
+    # Do not use with devDeviationThresholds.
     devLowNodeUtilizationThresholds: Medium
