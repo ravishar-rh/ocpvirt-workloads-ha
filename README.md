@@ -4,9 +4,9 @@ Kustomize manifests for deploying OpenShift workload-availability operators on
 bare-metal clusters with HPE iLO out-of-band fencing via Fence Agents
 Remediation (FAR).
 
-All operator Subscriptions use `installPlanApproval: Manual`. Argo CD syncs the
-Subscription objects immediately; you approve each InstallPlan manually in the
-cluster before the operator CSV is installed.
+All operator Subscriptions use `installPlanApproval: Manual` so upgrades require
+human approval. A CronJob auto-approves **initial** InstallPlans only, then
+suspends itself.
 
 ## Prerequisites
 
@@ -26,14 +26,15 @@ ocpvirt-workloads-ha/
 │   ├── application.yaml          # Operators Application (automated sync)
 │   └── application-instances.yaml # Instances Application (manual sync)
 ├── base/                         # Namespaces, OperatorGroups, GitOps RBAC
-├── operators/                    # OLM Subscriptions only
+├── operators/                    # OLM Subscriptions + InstallPlan approver
 └── instances/                    # FAR template, NHC, KubeDescheduler (no Secret)
 ```
 
-## InstallPlan manual approval order
+## InstallPlan approval
 
-Approve InstallPlans in this order. Wait for each operator CSV to reach
-`Succeeded` before approving the next tier.
+Subscriptions keep `installPlanApproval: Manual` so **operator upgrades** always
+need a human to approve new InstallPlans. For **first-time installs**, a CronJob
+auto-approves pending InstallPlans in order and then suspends itself.
 
 | Order | Operator | Subscription name | Namespace | Argo CD sync-wave |
 |------:|----------|-------------------|-----------|-------------------|
@@ -45,7 +46,44 @@ Approve InstallPlans in this order. Wait for each operator CSV to reach
 Each Subscription carries the annotation `ocpvirt-workloads-ha/install-plan-order`
 matching the table above.
 
-### Approve an InstallPlan
+### Automatic first-time approval (CronJob)
+
+`operators/installplan-approver/` deploys `installplan-initial-approver`:
+
+- Runs every minute (sync-wave `5`, before Subscriptions)
+- Approves **one** pending InstallPlan per run, in install order
+- Only when the subscription has **no Succeeded CSV yet** (initial install)
+- **Skips** subscriptions that already have a Succeeded `installedCSV` (upgrades stay manual)
+- **Suspends itself** after all four operators reach `Succeeded`
+
+Watch progress:
+
+```bash
+oc logs -n openshift-workload-availability -l app.kubernetes.io/name=installplan-initial-approver --tail=20
+oc get csv -n openshift-workload-availability
+oc get csv -n openshift-kube-descheduler-operator
+```
+
+Disable auto-approval (approve everything manually):
+
+```bash
+oc patch cronjob installplan-initial-approver -n openshift-workload-availability \
+  --type merge -p '{"spec":{"suspend":true}}'
+```
+
+Re-enable for a fresh cluster (all operators removed):
+
+```bash
+oc patch cronjob installplan-initial-approver -n openshift-workload-availability \
+  --type merge -p '{"spec":{"suspend":false}}'
+```
+
+On disconnected clusters, mirror `registry.redhat.io/openshift4/ose-cli` or patch
+the CronJob image to your cluster’s `cli` image.
+
+### Manual InstallPlan approval
+
+Use this if the CronJob is suspended or you prefer full manual control:
 
 ```bash
 # List pending InstallPlans in workload-availability namespace
@@ -69,7 +107,8 @@ Node Health Check uses the FAR template `far-template-hpe-ilo4` for remediation
 | Wave | Resources |
 |-----:|-----------|
 | 0–1 | Both namespaces and OperatorGroups (workload-availability uses AllNamespaces mode) |
-| 2 | GitOps RBAC (ClusterRole, Secret Role, RoleBindings) |
+| 2 | GitOps RBAC (ClusterRole, RoleBindings) |
+| 5 | InstallPlan initial approver CronJob |
 | 10 | Node Maintenance Subscription |
 | 20 | Fence Agents Remediation Subscription |
 | 30 | Node Health Check Subscription |
@@ -200,15 +239,18 @@ oc apply -f argocd/application-instances.yaml
 - `ocpvirt-workloads-ha` — operators (automated sync)
 - `ocpvirt-workloads-ha-instances` — CR instances (**manual sync only**)
 
-### 3. Approve operator InstallPlans
+### 3. Wait for operators (auto or manual InstallPlan approval)
 
-Follow the [InstallPlan order](#installplan-manual-approval-order) until all
-four CSVs show `Succeeded`:
+The `installplan-initial-approver` CronJob approves first-time InstallPlans in
+order. After ~5–10 minutes all four CSVs should show `Succeeded`:
 
 ```bash
 oc get csv -n openshift-workload-availability
 oc get csv -n openshift-kube-descheduler-operator
 ```
+
+Or follow [manual InstallPlan approval](#manual-installplan-approval) if the CronJob
+is suspended.
 
 ### 4. Customize instances in Git, then sync
 
@@ -377,6 +419,7 @@ oc kustomize instances/     # CR instances
 
 | File | Operator package | Instances |
 |------|------------------|-----------|
+| `operators/installplan-approver/` | CronJob (initial InstallPlan auto-approve) | N/A |
 | `operators/01-node-maintenance-operator.yaml` | `node-maintenance-operator` | None |
 | `operators/02-fence-agents-remediation-operator.yaml` | `fence-agents-remediation` | See `instances/` |
 | `operators/03-node-health-check-operator.yaml` | `node-healthcheck-operator` | See `instances/` |

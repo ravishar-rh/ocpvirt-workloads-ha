@@ -1,0 +1,105 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: installplan-initial-approver-script
+  namespace: openshift-workload-availability
+  labels:
+    app.kubernetes.io/name: installplan-initial-approver
+    app.kubernetes.io/part-of: ocpvirt-workloads-ha
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+data:
+  approve-initial-installplans.sh: |
+    #!/bin/bash
+    # Approve InstallPlans for first-time operator installs only.
+    # Upgrades (subscription already has a Succeeded CSV) are left for manual approval.
+    set -euo pipefail
+
+    CRONJOB_NAME="${CRONJOB_NAME:-installplan-initial-approver}"
+    CRONJOB_NAMESPACE="${CRONJOB_NAMESPACE:-openshift-workload-availability}"
+
+    OPERATORS=(
+      "openshift-workload-availability|node-maintenance-operator"
+      "openshift-workload-availability|fence-agents-remediation"
+      "openshift-workload-availability|node-healthcheck-operator"
+      "openshift-kube-descheduler-operator|cluster-kube-descheduler-operator"
+    )
+
+    log() { echo "[installplan-approver] $*"; }
+
+    subscription_exists() {
+      kubectl get subscription "$2" -n "$1" &>/dev/null
+    }
+
+    operator_installed() {
+      local ns=$1 sub=$2 csv phase
+      csv=$(kubectl get subscription "$sub" -n "$ns" -o jsonpath='{.status.installedCSV}' 2>/dev/null || true)
+      [[ -z "$csv" ]] && return 1
+      phase=$(kubectl get csv "$csv" -n "$ns" -o jsonpath='{.status.phase}' 2>/dev/null || true)
+      [[ "$phase" == "Succeeded" ]]
+    }
+
+    pending_installplan() {
+      local ns=$1 sub=$2 ip approved
+      ip=$(kubectl get subscription "$sub" -n "$ns" -o jsonpath='{.status.install.installPlanRef.name}' 2>/dev/null || true)
+      if [[ -z "$ip" ]]; then
+        ip=$(kubectl get subscription "$sub" -n "$ns" -o jsonpath='{.status.installplan.name}' 2>/dev/null || true)
+      fi
+      [[ -z "$ip" ]] && return 0
+      approved=$(kubectl get installplan "$ip" -n "$ns" -o jsonpath='{.spec.approved}' 2>/dev/null || true)
+      [[ "$approved" == "true" ]] && return 0
+      echo "$ip"
+    }
+
+    approve_installplan() {
+      local ns=$1 ip=$2
+      kubectl patch installplan "$ip" -n "$ns" --type merge -p '{"spec":{"approved":true}}'
+    }
+
+    all_operators_installed() {
+      local entry ns sub
+      for entry in "${OPERATORS[@]}"; do
+        IFS='|' read -r ns sub <<< "$entry"
+        subscription_exists "$ns" "$sub" || return 1
+        operator_installed "$ns" "$sub" || return 1
+      done
+      return 0
+    }
+
+    suspend_cronjob() {
+      kubectl patch cronjob "$CRONJOB_NAME" -n "$CRONJOB_NAMESPACE" \
+        --type merge -p '{"spec":{"suspend":true}}' || true
+    }
+
+    if all_operators_installed; then
+      log "All operators installed. Suspending CronJob (upgrades remain manual)."
+      suspend_cronjob
+      exit 0
+    fi
+
+    for entry in "${OPERATORS[@]}"; do
+      IFS='|' read -r ns sub <<< "$entry"
+
+      if ! subscription_exists "$ns" "$sub"; then
+        log "Subscription ${sub} not found in ${ns} — waiting."
+        exit 0
+      fi
+
+      if operator_installed "$ns" "$sub"; then
+        log "SKIP ${sub}: already installed (upgrade InstallPlans need manual approval)."
+        continue
+      fi
+
+      ip=$(pending_installplan "$ns" "$sub" || true)
+      if [[ -z "$ip" ]]; then
+        log "WAIT ${sub}: no pending InstallPlan yet."
+        exit 0
+      fi
+
+      log "APPROVE initial InstallPlan ${ip} for ${sub} in ${ns}"
+      approve_installplan "$ns" "$ip"
+      exit 0
+    done
+
+    log "No action taken this run."
+    exit 0

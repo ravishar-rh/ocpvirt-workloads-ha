@@ -1,0 +1,48 @@
+# Auto-approves initial InstallPlans only. Upgrades stay manual (installPlanApproval: Manual).
+# Suspends itself after all four operator CSVs reach Succeeded.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: installplan-initial-approver
+  namespace: openshift-workload-availability
+  labels:
+    app.kubernetes.io/name: installplan-initial-approver
+    app.kubernetes.io/part-of: ocpvirt-workloads-ha
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+spec:
+  schedule: "*/1 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: installplan-initial-approver
+        spec:
+          serviceAccountName: installplan-initial-approver
+          restartPolicy: OnFailure
+          containers:
+            - name: approver
+              # Override per cluster if needed (disconnected env, mirrored registry).
+              image: registry.redhat.io/openshift4/ose-cli:latest
+              command:
+                - /bin/bash
+                - /scripts/approve-initial-installplans.sh
+              env:
+                - name: CRONJOB_NAME
+                  value: installplan-initial-approver
+                - name: CRONJOB_NAMESPACE
+                  value: openshift-workload-availability
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                  readOnly: true
+          volumes:
+            - name: scripts
+              configMap:
+                name: installplan-initial-approver-script
+                defaultMode: 0755
