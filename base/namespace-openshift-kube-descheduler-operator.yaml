@@ -6,6 +6,7 @@ metadata:
   labels:
     openshift.io/cluster-monitoring: "true"
     app.kubernetes.io/part-of: ocpvirt-workloads-ha
+    argocd.argoproj.io/managed-by: openshift-gitops
   annotations:
     argocd.argoproj.io/sync-wave: "0"
 ---

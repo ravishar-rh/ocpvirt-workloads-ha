@@ -27,7 +27,7 @@ ocpvirt-workloads-ha/
 │   └── application-instances.yaml # Instances Application (manual sync)
 ├── base/                         # Namespaces, OperatorGroups, GitOps RBAC
 ├── operators/                    # OLM Subscriptions only
-└── instances/                    # Secret + CR instances (sync after operators)
+└── instances/                    # FAR template, NHC, KubeDescheduler (no Secret)
 ```
 
 ## InstallPlan manual approval order
@@ -156,36 +156,39 @@ Run in this order:
 
 ### 1. Grant GitOps RBAC (cluster-admin, once)
 
-OpenShift GitOps cannot patch Secrets in `openshift-*` namespaces without
-explicit permission (including `patch` for ServerSideApply). Instance CRs
-(`NodeHealthCheck`, etc.) also require a ClusterRole because OLM evaluates those
-permissions at cluster scope.
+OpenShift GitOps **cannot create Secrets** in `openshift-*` namespaces on most
+clusters (even with RoleBindings). This repo avoids that by storing iLO
+credentials in the FAR template `sharedparameters` instead of a Secret.
 
-Apply bootstrap once as cluster-admin, then the operators Application keeps the
-same RBAC in sync from `base/gitops-rbac.yaml`:
+Run once as cluster-admin to grant GitOps access for instance CRs:
+
+```bash
+./bootstrap/grant-gitops-access.sh
+```
+
+Manual equivalent:
 
 ```bash
 oc apply -k bootstrap/
+oc label namespace openshift-workload-availability argocd.argoproj.io/managed-by=openshift-gitops --overwrite
+oc label namespace openshift-kube-descheduler-operator argocd.argoproj.io/managed-by=openshift-gitops --overwrite
+oc adm policy add-role-to-user admin \
+  system:serviceaccount:openshift-gitops:openshift-gitops-argocd-application-controller \
+  -n openshift-workload-availability
+oc adm policy add-role-to-user admin \
+  system:serviceaccount:openshift-gitops:openshift-gitops-argocd-application-controller \
+  -n openshift-kube-descheduler-operator
 ```
 
-Verify permissions:
+Verify:
 
 ```bash
-oc get clusterrolebinding openshift-gitops-ocpvirt-workloads-ha-instances
-oc get rolebinding openshift-gitops-ocpvirt-workloads-ha-secrets \
-  -n openshift-workload-availability
-
-oc auth can-i patch secrets \
-  --as=system:serviceaccount:openshift-gitops:openshift-gitops-argocd-application-controller \
-  -n openshift-workload-availability
-
 oc auth can-i patch nodehealthchecks.remediation.medik8s.io \
   --as=system:serviceaccount:openshift-gitops:openshift-gitops-argocd-application-controller \
   -n openshift-workload-availability
 ```
 
-Both `patch secrets` and `patch nodehealthchecks...` must answer **yes** before
-syncing instances.
+Must answer **yes** before syncing instances.
 
 ### 2. Register Applications
 
@@ -209,8 +212,7 @@ oc get csv -n openshift-kube-descheduler-operator
 
 ### 4. Customize instances in Git, then sync
 
-Edit `instances/fence-agents-secret.yaml` and
-`instances/fence-agents-remediation-template.yaml` (iLO credentials and node
+Edit `instances/fence-agents-remediation-template.yaml` (iLO credentials and node
 map), push to Git, then:
 
 ```bash
@@ -225,10 +227,9 @@ oc patch application ocpvirt-workloads-ha-instances -n openshift-gitops --type m
 
 | Error | Cause | Fix |
 |-------|-------|-----|
-| `cannot patch resource "secrets"` | GitOps SA lacks Secret RBAC in operator namespace | `oc apply -k bootstrap/` then verify `oc auth can-i patch secrets ...` |
-| `cannot patch resource "nodehealthchecks"` | Missing ClusterRole for instance CRDs | Re-apply `oc apply -k bootstrap/` |
+| `cannot create/patch resource "secrets"` | OpenShift GitOps blocked from Secrets in `openshift-*` | **Fixed in repo** — no Secret in `instances/`; credentials are in FAR `sharedparameters` |
+| `cannot patch resource "nodehealthchecks"` | Missing ClusterRole for instance CRDs | Run `./bootstrap/grant-gitops-access.sh` |
 | `FenceAgentsRemediationTemplate` not syncing | Wrong `nodeparameters` shape or unknown node names | Use parameter-first maps; set real node names from `oc get nodes` |
-| `Resource not found: Secret/fence-agents-credentials-hpe-ilo` | Instances Application not synced yet, or sync failed on Secret | Sync `ocpvirt-workloads-ha-instances`; verify `oc get secret fence-agents-credentials-hpe-ilo -n openshift-workload-availability` |
 | `KubeDescheduler` not found | Descheduler operator not installed yet | Approve descheduler InstallPlan; then sync instances |
 | `is part of applications X and Y` | Two Applications manage the same resource | Delete the extra Application (see below) |
 
@@ -239,7 +240,7 @@ This repo defines exactly **two** Applications:
 | Application | Path | Purpose |
 |-------------|------|---------|
 | `ocpvirt-workloads-ha` | `.` | Namespaces, OperatorGroups, Subscriptions |
-| `ocpvirt-workloads-ha-instances` | `instances` | Secret, FAR template, NHC, KubeDescheduler |
+| `ocpvirt-workloads-ha-instances` | `instances` | FAR template, NHC, KubeDescheduler |
 
 If you also created `ocpvirt-workloads-ha-config` (or any other Application
 pointing at `instances/` or overlapping paths), Argo CD warns that resources
@@ -277,15 +278,16 @@ Do **not** create a third Application for the same `instances/` path. Use
 
 Before syncing instances, update in Git:
 
-1. **HPE iLO credentials** — `instances/fence-agents-secret.yaml` (ships with
-   placeholder `ilo-admin` / `changeme`; replace before production)
-2. **BMC node map** — `instances/fence-agents-remediation-template.yaml`
-   (`nodeparameters` must match OpenShift node names)
+1. **HPE iLO credentials** — `instances/fence-agents-remediation-template.yaml`
+   (`sharedparameters.--username` / `--password`; placeholders `ilo-admin` /
+   `changeme`)
+2. **BMC node map** — same file (`nodeparameters` must match OpenShift node names)
 3. **Node Health Check** — `instances/node-health-check.yaml` (if needed)
 
-The Secret is managed by `ocpvirt-workloads-ha-instances`. It is created on sync
-and **deleted when that Application is removed** (via the Argo CD resources
-finalizer and `Prune=true` sync option).
+iLO credentials are **not** stored in a Kubernetes Secret because OpenShift
+GitOps cannot manage Secrets in `openshift-workload-availability`. For production,
+either edit the template in a private Git repo or switch to `sharedSecretName`
+and create the Secret manually with `oc create secret` (outside GitOps).
 
 ### HPE iLO setup
 
@@ -293,11 +295,10 @@ finalizer and `Prune=true` sync option).
 |------|-------|
 | Fence agent | `fence_ilo4` (iLO 4/5 via IPMI LAN+) |
 | Template name | `far-template-hpe-ilo4` |
-| Secret | `fence-agents-credentials-hpe-ilo` |
+| Credentials | `sharedparameters` (`--username`, `--password`) — not a Secret |
 | Remediation strategy | `ResourceDeletion` |
 | Per-node params | `nodeparameters.ipaddr` / `nodeparameters.plug` maps keyed by node name |
 | Shared params | `--lanplus: "1"`, `--action: reboot` |
-| Secret keys | `--username`, `--password` (fence agent parameter names) |
 
 **Important:** `nodeparameters` uses parameter-first maps, not node-first nesting:
 
@@ -383,7 +384,6 @@ oc kustomize instances/     # CR instances
 
 | Instance file | Resource |
 |---------------|----------|
-| `instances/fence-agents-secret.yaml` | iLO credentials Secret (`ilo-admin` / `changeme` placeholders) |
-| `instances/fence-agents-remediation-template.yaml` | `FenceAgentsRemediationTemplate` |
+| `instances/fence-agents-remediation-template.yaml` | `FenceAgentsRemediationTemplate` (includes iLO credentials in `sharedparameters`) |
 | `instances/node-health-check.yaml` | `NodeHealthCheck` |
 | `instances/kube-descheduler.yaml` | `KubeDescheduler` (`devLowNodeUtilizationThresholds: Medium`) |

@@ -67,48 +67,7 @@ subjects:
     name: openshift-gitops-argocd-application-controller
     namespace: openshift-gitops
 ---
-# Explicit Secret permissions (required for ServerSideApply / patch on fence-agents secret).
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: openshift-gitops-ocpvirt-workloads-ha-secrets
-  namespace: openshift-workload-availability
-  labels:
-    app.kubernetes.io/part-of: ocpvirt-workloads-ha
-  annotations:
-    argocd.argoproj.io/sync-wave: "2"
-rules:
-  - apiGroups:
-      - ""
-    resources:
-      - secrets
-    verbs:
-      - get
-      - list
-      - watch
-      - create
-      - update
-      - patch
-      - delete
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: openshift-gitops-ocpvirt-workloads-ha-secrets
-  namespace: openshift-workload-availability
-  labels:
-    app.kubernetes.io/part-of: ocpvirt-workloads-ha
-  annotations:
-    argocd.argoproj.io/sync-wave: "2"
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: openshift-gitops-ocpvirt-workloads-ha-secrets
-subjects:
-  - kind: ServiceAccount
-    name: openshift-gitops-argocd-application-controller
-    namespace: openshift-gitops
----
+# ClusterRole + namespace admin for GitOps application-controller (instance CRDs).
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:

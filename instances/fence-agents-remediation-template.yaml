@@ -18,10 +18,13 @@ spec:
       retrycount: 5
       retryinterval: 5s
       timeout: 120s
-      sharedSecretName: fence-agents-credentials-hpe-ilo
+      # Credentials inline — OpenShift GitOps cannot create Secrets in openshift-* namespaces.
+      # Replace placeholders before production; or switch to sharedSecretName + oc create secret.
       sharedparameters:
         --lanplus: "1"
         --action: reboot
+        --username: ilo-admin
+        --password: changeme
         pcmk_host_check: static-list
       # Parameter name -> { nodeName: value }. Keys must match `oc get nodes` exactly.
       nodeparameters:
